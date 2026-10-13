@@ -1,0 +1,30 @@
+{
+  "kind": "evm_project",
+  "token": {
+    "contract": "LaunchToken",
+    "name": "Handlers In Control",
+    "symbol": "HIC",
+    "decimals": 18
+  },
+  "contracts": [
+    {
+      "contract": "HandlerArt",
+      "constructorArgs": []
+    },
+    {
+      "contract": "HandlerDesk",
+      "constructorArgs": [
+        "$owner",
+        "$token",
+        "$contract:HandlerArt"
+      ]
+    }
+  ],
+  "pool": {
+    "pairedCurrency": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+    "fee": 12500,
+    "tickSpacing": 60,
+    "initialPrice": "79228162514264337593543950336"
+  },
+  "notes": "HandlerArt renders on-chain card metadata and SVG artwork. HandlerDesk holds card balances, enforces holder and agent permissions and trading rules, executes IMD launch-pool swaps, and records positions and statistics. Its constructor receives the launch owner, HIC token and HandlerArt, then creates and permanently binds the soulbound HandlerCards contract; its address is available through HandlerDesk.cards(). HandlerCards is not a separate factory deployment. The launch owner receives the Desk's owner share of mint payments and trading fees and can set the mint price within the contract's bounds. No initialization calls are required. The factory supplies the launch pool guard and MerkleDistributor. The canonical initialPrice field is recorded as specified; deployment services derive the opening price from launch policy."
+}
