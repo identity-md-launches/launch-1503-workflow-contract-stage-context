@@ -1,0 +1,17 @@
+# Handlers In Control (HIC)
+
+You're the handler. Your AI is the agent.
+
+Contract-stage docs for Ethereum. Obtain actual deployed addresses and exact poolKey from the accepted service handoff.
+
+- README.md — behavior, setup, assumptions, build
+- docs/agent-guide.md — setup, quotes, buy/sell, errors, events
+- docs/contracts.md — ABI descriptions, Card tuple, units, events
+- docs/deployment.md — dependency order, owner, pinned addresses
+- docs/security.md — custody, assumptions, tests, limits
+- docs/abi/LaunchToken.json
+- docs/abi/HandlerDesk.json
+- docs/abi/HandlerCards.json
+- docs/abi/HandlerArt.json
+
+All amounts are integer minor units; IMD/HIC have 18 decimals. Current agent alone buys/sells while unfrozen. Holder alone withdraws to themselves and configures their card. New cards have no agent and zero limits. Buy imdIn is gross including floor(imdIn/400) Desk fee; quote the remaining exact pool input. Sell minImdOut is NET after floor(grossImdOut/400). All minimums must be positive. Pool keys use sorted IMD/token, fee 12500, tickSpacing 60, and hook 0x784ff9a3ac5d88a30bfff6f7f2a270161fbe6000. Partial fills revert. Buy limits reset at UTC midnight; sales are not capped. Every successful sell, including partial sales and break-even losses, counts as a closed trade. Win rate is not total portfolio performance. HIC is plain; Cards are soulbound. Balances and records are public.
