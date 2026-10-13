@@ -6,6 +6,7 @@ import {HandlerDesk} from "../src/HandlerDesk.sol";
 import {HandlerArt} from "../src/HandlerArt.sol";
 import {LaunchToken} from "../src/LaunchToken.sol";
 import {MockToken} from "./helpers/Mocks.sol";
+import {AdversarialToken} from "./helpers/AdversarialToken.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -15,6 +16,12 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract SixDecimalLaunchCoin is MockToken {
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+}
 
 /// @dev Local simulation of the brief's initialization-only factory guard, not a production hook.
 contract InitializationHook {
@@ -242,5 +249,77 @@ contract UniswapIntegrationTest is Test {
         desk.buy(id, address(emptyCoin), 1 ether, 1);
         assertEq(desk.balances(id, desk.IMD()), 1000 ether);
         assertEq(desk.spentToday(id), 0);
+    }
+
+    /// forge-config: default.fuzz.runs = 1000
+    function testFuzz_realPoolRoundTripCannotCreateImd(uint256 raw, bool high) public {
+        uint256 id = _card();
+        address token = high ? address(highCoin) : address(lowCoin);
+        uint256 amount = bound(raw, 1e12, 100 ether);
+        uint256 before = desk.balances(id, address(imd));
+        uint256 ownerBefore = imd.balanceOf(owner);
+        vm.prank(agent);
+        uint256 out = desk.buy(id, token, amount, 1);
+        vm.prank(agent);
+        uint256 returned = desk.sell(id, token, out, 1);
+        assertGt(returned, 0);
+        assertLt(returned, amount, "fees and pool spread must prevent round-trip profit");
+        assertEq(desk.balances(id, address(imd)), before - amount + returned);
+        assertEq(desk.balances(id, token), 0);
+        (uint256 q, uint256 cost) = desk.positions(id, token);
+        assertEq(q, 0);
+        assertEq(cost, 0);
+        assertEq(desk.getCard(id).pnl, int256(returned) - int256(amount));
+        assertEq(desk.getCard(id).losses, 1);
+        assertGt(imd.balanceOf(owner), ownerBefore);
+        assertEq(imd.balanceOf(address(desk)), desk.totalLiability(address(imd)) + desk.burnImd());
+        assertEq(IERC20(token).balanceOf(address(desk)), 0);
+    }
+
+    function test_realPoolSixDecimalCoinUsesRawUnitsAndPreservesCostBasis() public {
+        SixDecimalLaunchCoin coin = new SixDecimalLaunchCoin();
+        PoolKey memory key = desk.poolKey(address(coin));
+        // One whole six-decimal coin per whole 18-decimal IMD, in either sort ordering.
+        uint160 price = address(coin) < address(imd)
+            ? uint160((uint256(1) << 96) * 1e6)
+            : uint160((uint256(1) << 96) / 1e6);
+        manager.initialize(key, price);
+        coin.mint(address(seeder), 1_000_000 * 1e6);
+        seeder.add(key, 1e16);
+        uint256 id = _card();
+        vm.prank(agent);
+        uint256 out = desk.buy(id, address(coin), 1 ether, 900_000);
+        assertGe(out, 900_000);
+        assertLt(out, 1_000_000);
+        assertEq(coin.balanceOf(address(desk)), out);
+        (uint256 q, uint256 cost) = desk.positions(id, address(coin));
+        assertEq(q, out);
+        assertEq(cost, 1 ether);
+        vm.prank(agent);
+        uint256 returned = desk.sell(id, address(coin), out, 0.9 ether);
+        assertGe(returned, 0.9 ether);
+        assertLt(returned, 1 ether);
+        (q, cost) = desk.positions(id, address(coin));
+        assertEq(q, 0);
+        assertEq(cost, 0);
+        assertEq(desk.getCard(id).pnl, int256(returned) - 1 ether);
+        assertEq(imd.balanceOf(address(desk)), desk.totalLiability(address(imd)) + desk.burnImd());
+    }
+
+    function test_realPoolSupportsNoReturnTokensInBothSwapDirections() public {
+        uint256 id = _card();
+        AdversarialToken implementation = new AdversarialToken();
+        vm.etch(address(imd), address(implementation).code);
+        vm.etch(address(lowCoin), address(implementation).code);
+        AdversarialToken(address(imd)).setReturnMode(false, true);
+        AdversarialToken(address(lowCoin)).setReturnMode(false, true);
+        _roundTrip(id, address(lowCoin));
+        uint256 available = desk.balances(id, address(imd));
+        uint256 before = imd.balanceOf(holder);
+        vm.prank(holder);
+        desk.withdraw(id, address(imd), available);
+        assertEq(imd.balanceOf(holder), before + available);
+        assertEq(desk.totalLiability(address(imd)), 0);
+        assertEq(imd.balanceOf(address(desk)), desk.burnImd());
     }
 }
